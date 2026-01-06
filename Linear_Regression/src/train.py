@@ -12,20 +12,22 @@ import wandb
 
 def train_step(model, xs, ys, optimizer):
     optimizer.zero_grad()
+    preds = model(xs, ys)                         # (B, 2N, 1)
+    B, N, _ = ys.shape
 
-    ys_in = ys.clone()
-    output = model(xs, ys_in, inds=[n_points - 1])  # shape (B, 1)
-    output_query = output[:, -1, :]
+    # indices of y slots in the interleaved sequence: 1,3,5,...,2N-1
+    y_pos = torch.arange(1, 2*N, 2, device=preds.device)
 
-    # target 
-    tgt = ys_in[:, -1, :] # will extract the last element of each group of batches
+    # targets for ALL y positions (including final query y_N)
+    tgt_all = ys.squeeze(-1)                      # (B, N)
+    pred_all = preds[:, y_pos, :].squeeze(-1)     # (B, N)
 
-
-
-    loss = mean_squared_error(output_query, tgt)
+    loss = (pred_all - tgt_all).pow(2).mean()
     loss.backward()
+    #check_gradient_flow(model)
     optimizer.step()
     return loss.detach().item()
+
 
 def train(model, train_steps=1000, log_every=50):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -47,6 +49,41 @@ def train(model, train_steps=1000, log_every=50):
 def mean_squared_error(ys_pred, ys):
     return (ys - ys_pred).square().mean()
 
+def check_gradient_flow(model, tiny=1e-10, huge=1e+2):
+    stats = []
+    for name, p in model.named_parameters():
+        if p.grad is None:
+            stats.append((name, None))
+            continue
+        g = p.grad.detach()
+        gnorm = g.norm().item()
+        stats.append((name, gnorm))
+
+    # Print or log a compact report
+    no_grad = [n for n, g in stats if g is None]
+    tiny_grad = [n for n, g in stats if g is not None and g < tiny]
+    huge_grad = [n for n, g in stats if g is not None and g > huge]
+
+    print(f"[grad-flow] no_grad: {len(no_grad)} | tiny: {len(tiny_grad)} | huge: {len(huge_grad)}")
+    # Uncomment for detail:
+    # for n in tiny_grad: print("tiny  ", n)
+    # for n in huge_grad: print("huge! ", n)
+
+def visualize_sequence(xs, ys, max_examples=1, max_dims=4):
+    """
+    Show: x0, y0, x1, y1, ..., x_{N-1}, y_{N-1} (last y zero in inputs).
+    """
+    import torch
+    B, N, D = xs.shape
+    model_like_z = TransformerModel._combine(xs, ys)  # uses your combine
+    for b in range(min(B, max_examples)):
+        print(f"--- Batch {b} ---")
+        for t in range(2*N):
+            kind = "x" if (t % 2 == 0) else "y"
+            vec = model_like_z[b, t, :max_dims].tolist()
+            print(f"t={t:02d} [{kind}] : {vec}")
+        # Also show the true y for the final slot (to confirm target)
+        print("true y_N:", ys[b, -1, 0].item())
 
 if __name__ == "__main__":
     t = TransformerModel(n_dims, n_points)

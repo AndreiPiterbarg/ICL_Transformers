@@ -53,10 +53,9 @@ class TransformerModel(nn.Module):
         ys_pad = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
         ys_pad[..., 0] = ys_b.squeeze(-1)
         # Interleave xs and ys_pad, but drop the last y
-        zs = []
+        toks = []
         for i in range(N):
-            zs.append(xs_b[:, i, :])
-            if i < N - 1:
-                zs.append(ys_pad[:, i, :])
-        zs = torch.stack(zs, dim=1)
-        return zs
+            toks.append(xs_b[:, i, :])      # x_i
+            toks.append(ys_pad[:, i, :])     # y_i (last one is zeros in inputs)
+
+        return torch.stack(toks, dim=1)      # (B, 2N, D)
