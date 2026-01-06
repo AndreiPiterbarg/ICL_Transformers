@@ -9,4 +9,4 @@ def generate_linear(n_points, b_size, n_dims):
 
 
 if __name__ == "__main__":
-    print(generate_linear(3, 5, 4))
+    xs, ys, w =generate_linear(3, 5, 4)

@@ -3,7 +3,7 @@ import torch.nn as nn
 from transformers import GPT2Model, GPT2Config
 
 class TransformerModel(nn.Module):
-    def __init__(self, n_dims, n_positions, n_embd=128, n_layer=12, n_head=4):
+    def __init__(self, n_dims, n_positions, n_embd=128, n_layer=6, n_head=4):
         super(TransformerModel, self).__init__()
         configuration = GPT2Config(
             n_positions=2 * n_positions,
@@ -31,23 +31,32 @@ class TransformerModel(nn.Module):
             inds = torch.tensor(inds)
             if max(inds) >= ys.shape[1] or min(inds) < 0:
                 raise ValueError("inds contain indices where xs and ys are not defined")
+        
+        
         zs = self._combine(xs, ys)
+
         embeds = self._read_in(zs)
         output = self._backbone(inputs_embeds=embeds).last_hidden_state
         prediction = self._read_out(output)
-        return prediction[:, ::2, 0][:, inds]  # predict only on xs
+        return prediction
     
     @staticmethod
     def _combine(xs_b, ys_b):
-        """Interleaves the x's and the y's into a single sequence."""
-        bsize, points, dim = xs_b.shape
-        ys_b_wide = torch.cat(
-            (
-                ys_b.view(bsize, points, 1),
-                torch.zeros(bsize, points, dim - 1, device=ys_b.device),
-            ),
-            dim=2,
-        )
-        zs = torch.stack((xs_b, ys_b_wide), dim=2)
-        zs = zs.view(bsize, 2 * points, dim)
+        """Interleaves the x's and the y's into a single sequence, and remove the final y from each batch
+        Such that tgt in train.py contains the last element in the batch that transformer must guess and the other interleaved ... are here"""
+
+        B, N, D = xs_b.shape
+        ys_b = ys_b.clone()
+        # Remove the last y from each batch (set to zero)
+        ys_b[:, -1, :] = 0.0
+        # Pad ys to n_dims
+        ys_pad = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
+        ys_pad[..., 0] = ys_b.squeeze(-1)
+        # Interleave xs and ys_pad, but drop the last y
+        zs = []
+        for i in range(N):
+            zs.append(xs_b[:, i, :])
+            if i < N - 1:
+                zs.append(ys_pad[:, i, :])
+        zs = torch.stack(zs, dim=1)
         return zs

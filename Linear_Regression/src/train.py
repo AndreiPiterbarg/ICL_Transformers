@@ -14,13 +14,15 @@ def train_step(model, xs, ys, optimizer):
     optimizer.zero_grad()
 
     ys_in = ys.clone()
-    ys_in[:, -1, :] = 0.0
-
-
     output = model(xs, ys_in, inds=[n_points - 1])  # shape (B, 1)
-    target = ys[:, [n_points - 1], 0]               # shape (B, 1)
+    output_query = output[:, -1, :]
 
-    loss = mean_squared_error(output, target)
+    # target 
+    tgt = ys_in[:, -1, :] # will extract the last element of each group of batches
+
+
+
+    loss = mean_squared_error(output_query, tgt)
     loss.backward()
     optimizer.step()
     return loss.detach().item()
@@ -29,14 +31,18 @@ def train(model, train_steps=1000, log_every=50):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     for i in range(train_steps):
-        # FIXED argument order: (n_points, b_size, n_dims)
+    #for i in range(1):
+
+
         xs, ys, w = generate_linear(n_points, batch_size, n_dims)
 
+        #print (xs)
+        #print (ys)
         loss = train_step(model, xs, ys, optimizer)
 
         if i % log_every == 0:
             print(f"step {i} | query loss: {loss:.6f}")
-
+        #print(f"step {i} | query loss: {loss:.6f}")
 
 def mean_squared_error(ys_pred, ys):
     return (ys - ys_pred).square().mean()
