@@ -6,7 +6,7 @@ from config import batch_size, nn_output_dim
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, n_dims, n_positions, n_embd=128, n_layer=6, n_head=4):
+    def __init__(self, n_dims, n_positions, name, n_embd=128, n_layer=6, n_head=4):
         super(TransformerModel, self).__init__()
         configuration = GPT2Config(
             n_positions=2 * n_positions,
@@ -18,7 +18,7 @@ class TransformerModel(nn.Module):
             attn_pdrop=0.0,
             use_cache=False,
         )
-        self.name = f"gpt2_embd={n_embd}_layer={n_layer}_head={n_head}"
+        self.name = name
 
         self.n_positions = n_positions
         self.n_dims = n_dims
