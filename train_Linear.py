@@ -1,27 +1,35 @@
 import torch
-from model import TransformerModel
-from data_sampler import generate_linear
-from config import lr, batch_size, n_dims, n_points
-
-import wandb
+import torch.nn.functional as F
 
 def train_step(model, xs, ys, optimizer):
+    """
+    xs: (B, N, D_in)
+    ys: (B, N, 1)     # includes y_query as ys[:, -1]
+    model(xs, ys) returns preds: (B, 2N, 1) aligned with interleaved sequence
+    """
+    model.train()
     optimizer.zero_grad()
-    preds = model(xs, ys)                         # (B, 2N, 1)
+
+    preds = model(xs, ys)  # (B, 2N, 1)
     B, N, _ = ys.shape
 
-    # indices of y slots in the interleaved sequence: 1,3,5,...,2N-1
-    y_pos = torch.arange(1, 2*N, 2, device=preds.device)
+    # x positions in the interleaved sequence: 0,2,4,...,2N-2 (length N)
+    x_pos = torch.arange(0, 2 * N, 2, device=preds.device)
 
-    # targets for ALL y positions (including final query y_N)
-    tgt_all = ys.squeeze(-1)                      # (B, N)
-    pred_all = preds[:, y_pos, :].squeeze(-1)     # (B, N)
+    # predictions at x positions -> should predict corresponding y_i
+    pred_at_x = preds.index_select(dim=1, index=x_pos).squeeze(-1)  # (B, N)
+    tgt_y = ys.squeeze(-1)                                          # (B, N)
 
-    loss = (pred_all - tgt_all).pow(2).mean()
+    # Train loss over ALL points (including query point at i = N-1)
+    loss = F.mse_loss(pred_at_x, tgt_y)
+
+    # Useful to log query-only loss too (last point)
+    query_loss = F.mse_loss(pred_at_x[:, -1], tgt_y[:, -1])
+
     loss.backward()
-    #check_gradient_flow(model)
     optimizer.step()
-    return loss.detach().item()
+
+    return loss.item(), query_loss.item()
 
 
 def train(model, train_steps=1000, log_every=50):
