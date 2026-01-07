@@ -1,41 +1,31 @@
 import torch
-import torch.nn.functional as F
-from config import lr, batch_size, n_dims, n_points
 from model import TransformerModel, NNTransformer
 from data_sampler import generate_linear, generate_nn
+import sys
+from pathlib import Path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+from config import lr, batch_size, n_dims, n_points, nn_hidden_dim, nn_input_dims, nn_output_dim
+
+import wandb
 
 def train_step(model, xs, ys, optimizer):
-    """
-    xs: (B, N, D_in)
-    ys: (B, N, 1)     # includes y_query as ys[:, -1]
-    model(xs, ys) returns preds: (B, 2N, 1) aligned with interleaved sequence
-    """
-    model.train()
     optimizer.zero_grad()
-
-    ys_in = ys.clone()
-    ys_in[:, -1, :] = 0.0
-    preds = model(xs, ys_in)
-
+    preds = model(xs, ys)                         # (B, 2N, 1)
     B, N, _ = ys.shape
 
-    # x positions: 0,2,4,...,2N-2
-    # x positions are 0,2,4,...,2N-2  (length N, last is x_query)
-    x_pos = torch.arange(0, 2 * N - 1, 2, device=preds.device)
+    y_pos = torch.arange(1, 2*N, 2, device=preds.device)
 
-    pred_at_x = preds.index_select(1, x_pos).squeeze(-1)   # (B, N)
-    tgt_y = ys.squeeze(-1)                                 # (B, N)
+    # targets for ALL y positions (including final query y_N)
+    tgt_all = ys.squeeze(-1)                      # (B, N)
+    pred_all = preds[:, y_pos, :].squeeze(-1)     # (B, N)
 
-    loss = F.mse_loss(pred_at_x[:, 1:], tgt_y[:, 1:])      # query-only loss
-
-
-
+    loss = MSE_nn(pred_all, tgt_all)
     loss.backward()
-
-    
+    #check_gradient_flow(model)
     optimizer.step()
-
-    return loss.item()
+    return loss.detach().item()
 
 
 def train(model, train_steps=1000, log_every=50):
@@ -43,17 +33,31 @@ def train(model, train_steps=1000, log_every=50):
 
     for i in range(train_steps):
     #for i in range(1):
-        xs, ys = generate_linear(n_points, batch_size, n_dims)
+
+        xs, ys = generate_data(n_points, batch_size, n_dims, model)
+        
+
         #print (xs)
         #print (ys)
         loss = train_step(model, xs, ys, optimizer)
 
         if i % log_every == 0:
-            print(f"step {i} | loss: {loss:.6f}")
+            print(f"step {i} | query loss: {loss:.6f}")
         #print(f"step {i} | query loss: {loss:.6f}")
+
+def generate_data(n_points, batch_size, n_dims, model):
+    if model.name == "simple_regression":
+        xs, ys = generate_linear(n_points, batch_size, n_dims)
+        return xs, ys
+    if model.name == "nn":
+        xs, ys = generate_nn(n_points, batch_size, nn_hidden_dim, nn_output_dim, nn_input_dims)
+        return xs,ys
 
 def mean_squared_error(ys_pred, ys):
     return (ys - ys_pred).square().mean()
+
+def MSE_nn(ys_pred, ys):
+    return torch.nn.functional.mse_loss(ys_pred, ys)
 
 def check_gradient_flow(model, tiny=1e-10, huge=1e+2):
     stats = []
@@ -91,6 +95,14 @@ def visualize_sequence(xs, ys, max_examples=1, max_dims=4):
         # Also show the true y for the final slot (to confirm target)
         print("true y_N:", ys[b, -1, 0].item())
 
+def run_gradient_descent():
+    m = TransformerModel(n_dims, n_points, name= "simple_regression")
+    train(m)
+
+def run_nn_ICL():
+    m = NNTransformer(nn_input_dims, n_points, name = "nn")
+    train(m)
+
+
 if __name__ == "__main__":
-    t = TransformerModel(n_dims, n_points, name="simple_regression")
-    train(t)
+    run_nn_ICL()
