@@ -15,15 +15,16 @@ def train_step(model, xs, ys, optimizer):
     preds = model(xs, ys)                         # (B, 2N, 1)
     B, N, _ = ys.shape
 
-    y_pos = torch.arange(1, 2*N, 2, device=preds.device)
+    # Supervise at y positions: 1, 3, 5, ..., 2N-1
+    # At position 2i+1, model has seen i complete (x,y) pairs and predicts y_i
+    y_pos = torch.arange(1, 2 * N, 2, device=preds.device)
 
     # targets for ALL y positions (including final query y_N)
     tgt_all = ys.squeeze(-1)                      # (B, N)
-    pred_all = preds[:, y_pos, :].squeeze(-1)     # (B, N)
+    pred_all = preds.index_select(dim=1, index=y_pos).squeeze(-1)  # (B, N)
 
     loss = MSE_nn(pred_all, tgt_all)
     loss.backward()
-    #check_gradient_flow(model)
     optimizer.step()
     return loss.detach().item()
 

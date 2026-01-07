@@ -25,6 +25,7 @@ def train_and_evaluate(model_type="simple_regression", save_model=True):
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
     
+    print(model_type)
     # Train model
     print("Starting training...")
     train(model, train_steps=train_steps, log_every=log_every)

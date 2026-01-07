@@ -1,5 +1,8 @@
 import torch
 import torch.nn.functional as F
+from config import lr, batch_size, n_dims, n_points
+from model import TransformerModel, NNTransformer
+from data_sampler import generate_linear, generate_nn
 
 def train_step(model, xs, ys, optimizer):
     """
@@ -10,26 +13,29 @@ def train_step(model, xs, ys, optimizer):
     model.train()
     optimizer.zero_grad()
 
-    preds = model(xs, ys)  # (B, 2N, 1)
+    ys_in = ys.clone()
+    ys_in[:, -1, :] = 0.0
+    preds = model(xs, ys_in)
+
     B, N, _ = ys.shape
 
-    # x positions in the interleaved sequence: 0,2,4,...,2N-2 (length N)
-    x_pos = torch.arange(0, 2 * N, 2, device=preds.device)
+    # x positions: 0,2,4,...,2N-2
+    # x positions are 0,2,4,...,2N-2  (length N, last is x_query)
+    x_pos = torch.arange(0, 2 * N - 1, 2, device=preds.device)
 
-    # predictions at x positions -> should predict corresponding y_i
-    pred_at_x = preds.index_select(dim=1, index=x_pos).squeeze(-1)  # (B, N)
-    tgt_y = ys.squeeze(-1)                                          # (B, N)
+    pred_at_x = preds.index_select(1, x_pos).squeeze(-1)   # (B, N)
+    tgt_y = ys.squeeze(-1)                                 # (B, N)
 
-    # Train loss over ALL points (including query point at i = N-1)
-    loss = F.mse_loss(pred_at_x, tgt_y)
+    loss = F.mse_loss(pred_at_x[:, 1:], tgt_y[:, 1:])      # query-only loss
 
-    # Useful to log query-only loss too (last point)
-    query_loss = F.mse_loss(pred_at_x[:, -1], tgt_y[:, -1])
+
 
     loss.backward()
+
+    
     optimizer.step()
 
-    return loss.item(), query_loss.item()
+    return loss.item()
 
 
 def train(model, train_steps=1000, log_every=50):
@@ -37,17 +43,13 @@ def train(model, train_steps=1000, log_every=50):
 
     for i in range(train_steps):
     #for i in range(1):
-
-
         xs, ys = generate_linear(n_points, batch_size, n_dims)
-
-
         #print (xs)
         #print (ys)
         loss = train_step(model, xs, ys, optimizer)
 
         if i % log_every == 0:
-            print(f"step {i} | query loss: {loss:.6f}")
+            print(f"step {i} | loss: {loss:.6f}")
         #print(f"step {i} | query loss: {loss:.6f}")
 
 def mean_squared_error(ys_pred, ys):

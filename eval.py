@@ -27,27 +27,21 @@ def evaluate_model(model, n_test_batches=10, make_batch_fn=None):
         xs, ys = make_batch_fn()
         preds = model(xs, ys)  # (B, 2N, 1)
         B, N, _ = ys.shape
-
-
+        # y positions: 1,3,5,...,2N-1 - at position 2i+1 model predicts y_i
         y_pos = torch.arange(1, 2 * N, 2, device=preds.device)
-
- 
-
         pred_at_y = preds.index_select(1, y_pos).squeeze(-1)  # (B, N)
+        tgt_y = ys.squeeze(-1)     
 
-        tgt_y = ys.squeeze(-1)                                # (B, N)
-
- 
-
-        loss = F.mse_loss(pred_at_y, tgt_y)
-
+        loss  = F.mse_loss(pred_at_y, tgt_y)
         qloss = F.mse_loss(pred_at_y[:, -1], tgt_y[:, -1])
 
-
-
         total_loss += loss.item()
+
         query_losses.append(qloss.item())
-        model.train()
+
+ 
+
+    model.train()  # Restore train mode AFTER all evaluation
 
     return {
         "mean_loss": total_loss / n_test_batches,

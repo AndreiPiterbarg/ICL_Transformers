@@ -46,23 +46,21 @@ class TransformerModel(nn.Module):
     
     @staticmethod
     def _combine(xs_b, ys_b):
-        """Interleaves the x's and the y's into a single sequence, and set final y to 0
-        Such that tgt in train.py contains the last element in the batch that transformer must guess and the other interleaved ... """
-
         B, N, D = xs_b.shape
-        ys_b = ys_b.clone()
-        # Remove the last y from each batch (set to zero)
-        ys_b[:, -1, :] = 0.0
-        # Pad ys to n_dims
-        ys_pad = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
-        ys_pad[..., 0] = ys_b.squeeze(-1)
-        # Interleave xs and ys_pad, but drop the last y
-        toks = []
-        for i in range(N):
-            toks.append(xs_b[:, i, :])      # x_i
-            toks.append(ys_pad[:, i, :])     # y_i (last one is zeros in inputs)
 
-        return torch.stack(toks, dim=1)      # (B, 2N, D)
+        toks = []
+        # context pairs: i = 0..N-2
+        for i in range(N - 1):
+            toks.append(xs_b[:, i, :])                    # x_i  (B,D)
+            y_tok = torch.zeros(B, D, device=xs_b.device, dtype=xs_b.dtype)
+            y_tok[:, 0] = ys_b[:, i, 0]                   # put y_i in dim0
+            toks.append(y_tok)                            # y_i token (B,D)
+
+        # final token is x_query
+        toks.append(xs_b[:, N - 1, :])
+
+        return torch.stack(toks, dim=1)                   # (B, 2N-1, D)
+
 
 
 
@@ -108,25 +106,52 @@ class NNTransformer(nn.Module):
     
     @staticmethod
     def _combine(xs_b, ys_b):
-        """Interleaves the x's and the y's into a single sequence, and remove the final y from each batch
-        Such that tgt in train.py contains the last element in the batch that transformer must guess and the other interleaved ... """
+
+        """Interleaves the x's and the y's into a single sequence with proper causal masking.
+
+ 
+
+        The sequence is constructed so the model cannot see the target y when predicting it:
+
+        x_0, 0, x_1, y_0, x_2, y_1, ..., x_{N-1}, y_{N-2}
+
+ 
+
+        This ensures at position 2i+1 the model predicts y_i seeing only x_0,...,x_i,y_0,...,y_{i-1}
+
+        """
 
         B, N, input_dim = xs_b.shape
+
         output_dim = ys_b.shape[-1]
-        # Remove the last ys from each batch (set to zero)
-        ys_in = ys_b.clone()
-        ys_in[:, -1, :] = 0.0
+
+ 
 
         D = max(input_dim, output_dim)
+
         if input_dim < D:
+
             xs_b = F.pad(xs_b, (0, D - input_dim))      # pad last dim
-        if output_dim < D:
-            ys_in = F.pad(ys_in, (0, D - output_dim))   # pad last dim
+
+ 
+
+        # Create shifted y sequence: [0, y_0, y_1, ..., y_{N-2}]
+
+        ys_in = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
+
+        # Shift y values by one position: position i gets y_{i-1}
+
+        ys_in[:, 1:, :output_dim] = ys_b[:, :-1, :]  # ys_in[i] = y[i-1] for i >= 1, else 0
+
+ 
 
         toks = []
+
         for i in range(N):
-            toks.append(xs_b[:, i, :])   # (B, D)
-            toks.append(ys_in[:, i, :])  # (B, D) (last one is zeros in inputs)
+
+            toks.append(xs_b[:, i, :])   # (B, D)  x_i
+
+            toks.append(ys_in[:, i, :])  # (B, D)  y_{i-1} (or 0 for i=0)
 
         return torch.stack(toks, dim=1)  # (B, 2N, D)
 
