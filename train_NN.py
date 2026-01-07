@@ -28,22 +28,41 @@ def train_step(model, xs, ys, optimizer):
     return loss.detach().item()
 
 
-def train(model, train_steps=1000, log_every=50):
+def train(model, train_steps=1000, log_every=50, eval_every=None):
+    """
+    Train the model with optional periodic evaluation.
+    
+    Args:
+        model: The model to train
+        train_steps: Number of training steps
+        log_every: Log training loss every N steps
+        eval_every: Evaluate model every N steps (None to disable)
+    """
+    from config import eval_every as config_eval_every
+    from eval import evaluate_model, print_evaluation_report
+    
+    if eval_every is None:
+        eval_every = config_eval_every
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    losses = []
 
     for i in range(train_steps):
-    #for i in range(1):
-
         xs, ys = generate_data(n_points, batch_size, n_dims, model)
-        
-
-        #print (xs)
-        #print (ys)
         loss = train_step(model, xs, ys, optimizer)
+        losses.append(loss)
 
         if i % log_every == 0:
             print(f"step {i} | query loss: {loss:.6f}")
-        #print(f"step {i} | query loss: {loss:.6f}")
+        
+        if eval_every is not None and i > 0 and i % eval_every == 0:
+            print(f"\n--- Evaluation at step {i} ---")
+            model_type = model.name
+            metrics = evaluate_model(model, n_test_batches=5, model_type=model_type)
+            print(f"Test Query Loss: {metrics['mean_query_loss']:.6f} ± {metrics['std_query_loss']:.6f}")
+            print()
+    
+    return losses
 
 def generate_data(n_points, batch_size, n_dims, model):
     if model.name == "simple_regression":

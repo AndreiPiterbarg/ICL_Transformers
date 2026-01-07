@@ -26,10 +26,10 @@ def generate_nn(n_points, num_batches, hidden_dim, output_dim, input_dim):
     return xs, ys_out
 
 def test_linear_generate():
-    xs, ys, w =generate_linear(3, 5, 4)
+    xs, ys = generate_linear(3, 5, 4)
     print(xs.shape)
     print(ys.shape)
-    print(w.shape)
+
 
 def test_nn_generate():
     xs, ys =generate_nn(5, 10, 4, 8, 2)

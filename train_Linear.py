@@ -1,12 +1,7 @@
 import torch
 from model import TransformerModel
 from data_sampler import generate_linear
-import sys
-from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-from Linear_Regression.src.config import lr, batch_size, n_dims, n_points
+from config import lr, batch_size, n_dims, n_points
 
 import wandb
 
@@ -36,7 +31,8 @@ def train(model, train_steps=1000, log_every=50):
     #for i in range(1):
 
 
-        xs, ys, w = generate_linear(n_points, batch_size, n_dims)
+        xs, ys = generate_linear(n_points, batch_size, n_dims)
+
 
         #print (xs)
         #print (ys)
@@ -86,5 +82,5 @@ def visualize_sequence(xs, ys, max_examples=1, max_dims=4):
         print("true y_N:", ys[b, -1, 0].item())
 
 if __name__ == "__main__":
-    t = TransformerModel(n_dims, n_points)
+    t = TransformerModel(n_dims, n_points, name="simple_regression")
     train(t)
