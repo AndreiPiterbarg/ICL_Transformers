@@ -46,11 +46,24 @@ def train_and_evaluate(model_type="simple_regression", save_model=True):
     print("Evaluating Model")
     print(f"{'='*70}\n")
     
+    if model_type == "simple_regression":
+
+        make_batch_fn = lambda: generate_linear(n_points, batch_size, n_dims)
+
+    elif model_type == "nn":
+
+        make_batch_fn = lambda: generate_nn(n_points, batch_size, nn_hidden_dim, nn_output_dim, nn_input_dims)
+
+ 
+
     metrics = evaluate_model(
-    model,
-    n_test_batches=10,
-    make_batch_fn=lambda: generate_linear(n_points, batch_size, n_dims)
-    )
+
+        model,
+
+        n_test_batches=10,
+
+        make_batch_fn=make_batch_fn)
+    
     print(metrics)
     
     # Run generalization tests

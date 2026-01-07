@@ -58,7 +58,10 @@ def train(model, train_steps=1000, log_every=50, eval_every=None):
         if eval_every is not None and i > 0 and i % eval_every == 0:
             print(f"\n--- Evaluation at step {i} ---")
             model_type = model.name
-            metrics = evaluate_model(model, n_test_batches=5,  make_batch_fn=lambda: generate_linear(n_points, batch_size, n_dims))
+            eval_batch_fn = lambda: generate_data(n_points, batch_size, n_dims, model)
+
+            metrics = evaluate_model(model, n_test_batches=5, make_batch_fn=eval_batch_fn)
+            
             print(f"Test Query Loss: {metrics['mean_query_loss']:.6f} ± {metrics['std_query_loss']:.6f}")
             print()
     
