@@ -38,6 +38,7 @@ def evaluate_model(model, n_test_batches=10, make_batch_fn=None):
 
         total_loss += loss.item()
         query_losses.append(qloss.item())
+        model.train()
 
     return {
         "mean_loss": total_loss / n_test_batches,
@@ -66,9 +67,12 @@ def evaluate_generalization(model, sequence_lengths, model_type="simple_regressi
                 
                 preds = model(xs, ys)
                 B, N, output_dim = ys.shape
-                x_pos = torch.arange(0, 2*N, 2, device=preds.device)
-                
-                pred_all = preds[:, x_pos, :]
+                y_pos = torch.arange(1, 2*N, 2, device=preds.device)
+
+ 
+
+                pred_all = preds[:, y_pos, :]
+
                 tgt_all = ys
                 
                 if output_dim == 1:
