@@ -26,15 +26,24 @@ def evaluate_model(model, n_test_batches=10, make_batch_fn=None):
     for _ in range(n_test_batches):
         xs, ys = make_batch_fn()
         preds = model(xs, ys)  # (B, 2N, 1)
-
         B, N, _ = ys.shape
-        x_pos = torch.arange(0, 2 * N, 2, device=preds.device)
 
-        pred_at_x = preds.index_select(1, x_pos).squeeze(-1)  # (B, N)
+
+        y_pos = torch.arange(1, 2 * N, 2, device=preds.device)
+
+ 
+
+        pred_at_y = preds.index_select(1, y_pos).squeeze(-1)  # (B, N)
+
         tgt_y = ys.squeeze(-1)                                # (B, N)
 
-        loss = F.mse_loss(pred_at_x, tgt_y)
-        qloss = F.mse_loss(pred_at_x[:, -1], tgt_y[:, -1])
+ 
+
+        loss = F.mse_loss(pred_at_y, tgt_y)
+
+        qloss = F.mse_loss(pred_at_y[:, -1], tgt_y[:, -1])
+
+
 
         total_loss += loss.item()
         query_losses.append(qloss.item())
