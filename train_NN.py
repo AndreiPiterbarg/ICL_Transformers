@@ -123,7 +123,7 @@ def run_gradient_descent():
     train(m)
 
 def run_nn_ICL():
-    m = NNTransformer(nn_input_dims, n_points, name = "nn")
+    m = NNTransformer(nn_input_dims, nn_output_dim, n_points, name="nn")
     train(m)
 
 
