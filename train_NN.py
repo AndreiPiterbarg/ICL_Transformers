@@ -9,57 +9,101 @@ sys.path.insert(0, str(project_root))
 from config import lr, batch_size, n_dims, n_points, nn_hidden_dim, nn_input_dims, nn_output_dim
 
 import wandb
+# In train_step function (lines 13-29), replace with:
 
 def train_step(model, xs, ys, optimizer):
     optimizer.zero_grad()
     preds = model(xs, ys)                         # (B, 2N, 1)
     B, N, _ = ys.shape
-
-    # Supervise at y positions: 1, 3, 5, ..., 2N-1
-    # At position 2i+1, model has seen i complete (x,y) pairs and predicts y_i
-    y_pos = torch.arange(1, 2 * N, 2, device=preds.device)
-
-    # targets for ALL y positions (including final query y_N)
-    tgt_all = ys.squeeze(-1)                      # (B, N)
-    pred_all = preds.index_select(dim=1, index=y_pos).squeeze(-1)  # (B, N)
-
-    loss = MSE_nn(pred_all, tgt_all)
+    
+    # Only compute loss on the FINAL query prediction
+    # The final y is at position 2*N - 1 in the sequence
+    final_y_pos = 2 * N - 1
+    
+    # Get prediction for final y only
+    pred_final = preds[:, final_y_pos, :]  # (B, 1)
+    tgt_final = ys[:, -1, :]                # (B, 1)
+    
+    loss = MSE_nn(pred_final, tgt_final)
     loss.backward()
     optimizer.step()
     return loss.detach().item()
 
 
-def train(model, train_steps=1000, log_every=50, eval_every=None):
+# In train function (lines 32-69), replace with curriculum support:
+
+def train(model, train_steps=1000, log_every=50, eval_every=None, use_curriculum=True):
     """
-    Train the model with optional periodic evaluation.
+    Train the model with optional curriculum learning and periodic evaluation.
     
     Args:
         model: The model to train
         train_steps: Number of training steps
         log_every: Log training loss every N steps
         eval_every: Evaluate model every N steps (None to disable)
+        use_curriculum: Whether to use curriculum learning
     """
-    from config import eval_every as config_eval_every
+    from config import eval_every as config_eval_every, n_points as config_n_points
+    from config import batch_size as config_batch_size, n_dims as config_n_dims
     from eval import evaluate_model, print_evaluation_report
+    from curriculum_learning import CurriculumScheduler, CurriculumDataGenerator
     
     if eval_every is None:
         eval_every = config_eval_every
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     losses = []
+    
+    # Initialize curriculum if requested
+    if use_curriculum:
+        scheduler = CurriculumScheduler(
+            total_steps=train_steps,
+            num_stages=4,
+            start_points=5,
+            end_points=config_n_points,
+            start_noise=0.01,
+            end_noise=0.1,
+            warmup_ratio=0.1
+        )
+        
+        data_gen = CurriculumDataGenerator(
+            scheduler=scheduler,
+            model_type=model.name,
+            batch_size=config_batch_size,
+            base_n_dims=config_n_dims,
+            nn_hidden_dim=nn_hidden_dim if model.name == "nn" else None,
+            nn_output_dim=nn_output_dim if model.name == "nn" else None,
+            nn_input_dims=nn_input_dims if model.name == "nn" else None
+        )
+        current_stage = -1
 
     for i in range(train_steps):
-        xs, ys = generate_data(n_points, batch_size, n_dims, model)
+        # Generate data with curriculum or standard
+        if use_curriculum:
+            xs, ys = data_gen.generate(i)
+            params = data_gen.current_params
+            
+            # Log stage transitions
+            if params['stage'] != current_stage:
+                current_stage = params['stage']
+                print(f"\n{'='*70}")
+                print(f"Curriculum Stage {current_stage} at Step {i}")
+                print(f"{data_gen.get_current_stage_info()}")
+                print(f"{'='*70}\n")
+        else:
+            xs, ys = generate_data(n_points, batch_size, n_dims, model)
+        
         loss = train_step(model, xs, ys, optimizer)
         losses.append(loss)
 
         if i % log_every == 0:
-            print(f"step {i} | query loss: {loss:.6f}")
+            stage_info = f" | {data_gen.get_current_stage_info()}" if use_curriculum else ""
+            print(f"step {i} | query loss: {loss:.6f}{stage_info}")
         
         if eval_every is not None and i > 0 and i % eval_every == 0:
             print(f"\n--- Evaluation at step {i} ---")
             model_type = model.name
-            eval_batch_fn = lambda: generate_data(n_points, batch_size, n_dims, model)
+            eval_batch_fn = lambda: generate_data(config_n_points, config_batch_size, config_n_dims, model)
 
             metrics = evaluate_model(model, n_test_batches=5, make_batch_fn=eval_batch_fn)
             
@@ -67,6 +111,7 @@ def train(model, train_steps=1000, log_every=50, eval_every=None):
             print()
     
     return losses
+
 
 def generate_data(n_points, batch_size, n_dims, model):
     if model.name == "simple_regression":

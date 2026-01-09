@@ -27,6 +27,8 @@ class TransformerModel(nn.Module):
         self._read_out = nn.Linear(n_embd, 1)
 
 
+    # Replace the forward method (lines 30-44):
+
     def forward(self, xs, ys, inds=None):
         if inds is None:
             inds = torch.arange(ys.shape[1])
@@ -35,53 +37,61 @@ class TransformerModel(nn.Module):
             if max(inds) >= ys.shape[1] or min(inds) < 0:
                 raise ValueError("inds contain indices where xs and ys are not defined")
         
-        
         zs = self._combine(xs, ys)
-
+        B, seq_len, D = zs.shape
+        
+        # Create causal attention mask to prevent peeking at future positions
+        # attention_mask: 1 = attend, 0 = ignore
+        # Shape: (B, seq_len)
+        attention_mask = torch.ones(B, seq_len, device=zs.device, dtype=torch.long)
+        
         embeds = self._read_in(zs)
-        output = self._backbone(inputs_embeds=embeds).last_hidden_state
+        output = self._backbone(
+            inputs_embeds=embeds,
+            attention_mask=attention_mask
+        ).last_hidden_state
         prediction = self._read_out(output)
         return prediction
-    
+
+
+    # Replace the _combine method (lines 46-84):
+
     @staticmethod
     def _combine(xs_b, ys_b):
-
-
+        """
+        Interleaves x's and y's to create: x_0, y_0, x_1, y_1, ..., x_{N-2}, y_{N-2}, x_{N-1}, 0
+        
+        This creates n_points-1 complete (x,y) pairs, then a final x followed by 0.
+        The model sees N-1 examples and predicts the final y at position 2N-1.
+        
+        Args:
+            xs_b: (B, N, input_dim) - input features
+            ys_b: (B, N, output_dim) - target values
+        
+        Returns:
+            (B, 2N, D) - interleaved sequence where D = max(input_dim, output_dim)
+        """
         B, N, input_dim = xs_b.shape
-
         output_dim = ys_b.shape[-1]
-
- 
-
         D = max(input_dim, output_dim)
-
+        
+        # Pad xs to match max dimension if needed
         if input_dim < D:
-
-            xs_b = F.pad(xs_b, (0, D - input_dim))  # pad last dim
-
- 
-
-        # Create shifted y sequence: [0, y_0, y_1, ..., y_{N-2}]
-
+            xs_b = F.pad(xs_b, (0, D - input_dim))
+        
+        # Create y sequence: [y_0, y_1, ..., y_{N-2}, 0]
+        # All actual y values except the last one (which we predict), plus 0 at the end
         ys_in = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
-
-        # Shift y values by one position: position i gets y_{i-1}
-
-        ys_in[:, 1:, :output_dim] = ys_b[:, :-1, :]  # ys_in[i] = y[i-1] for i >= 1, else 0
-
- 
-
+        ys_in[:, :-1, :output_dim] = ys_b[:, :-1, :]  # Copy all y's except the last
+        
+        # Interleave: x_0, y_0, x_1, y_1, ..., x_{N-1}, 0
         toks = []
-
         for i in range(N):
-
             toks.append(xs_b[:, i, :])   # (B, D)  x_i
-
-            toks.append(ys_in[:, i, :])  # (B, D)  y_{i-1} (or 0 for i=0)
-
- 
-
+            toks.append(ys_in[:, i, :])  # (B, D)  y_i for i<N-1, else 0
+        
         return torch.stack(toks, dim=1)  # (B, 2N, D)
+
 
 
 
@@ -109,6 +119,8 @@ class NNTransformer(nn.Module):
         self._read_out = nn.Linear(n_embd, nn_output_dim)
 
 
+    # Replace the forward method (lines 112-126):
+
     def forward(self, xs, ys, inds=None):
         if inds is None:
             inds = torch.arange(ys.shape[1])
@@ -117,64 +129,61 @@ class NNTransformer(nn.Module):
             if max(inds) >= ys.shape[1] or min(inds) < 0:
                 raise ValueError("inds contain indices where xs and ys are not defined")
         
-        
         zs = self._combine(xs, ys)
-
+        B, seq_len, D = zs.shape
+        
+        # Create causal attention mask to prevent peeking at future positions
+        # attention_mask: 1 = attend, 0 = ignore
+        # Shape: (B, seq_len)
+        attention_mask = torch.ones(B, seq_len, device=zs.device, dtype=torch.long)
+        
         embeds = self._read_in(zs)
-        output = self._backbone(inputs_embeds=embeds).last_hidden_state
+        output = self._backbone(
+            inputs_embeds=embeds,
+            attention_mask=attention_mask
+        ).last_hidden_state
         prediction = self._read_out(output)
         return prediction
-    
+
+
+    # Replace the _combine method (lines 128-177):
+
     @staticmethod
     def _combine(xs_b, ys_b):
-
-        """Interleaves the x's and the y's into a single sequence with proper causal masking.
-
- 
-
-        The sequence is constructed so the model cannot see the target y when predicting it:
-
-        x_0, 0, x_1, y_0, x_2, y_1, ..., x_{N-1}, y_{N-2}
-
- 
-
-        This ensures at position 2i+1 the model predicts y_i seeing only x_0,...,x_i,y_0,...,y_{i-1}
-
         """
-
+        Interleaves x's and y's to create: x_0, y_0, x_1, y_1, ..., x_{N-2}, y_{N-2}, x_{N-1}, 0
+        
+        This creates n_points-1 complete (x,y) pairs, then a final x followed by 0.
+        The model sees N-1 examples and predicts the final y at position 2N-1.
+        
+        Args:
+            xs_b: (B, N, input_dim) - input features
+            ys_b: (B, N, output_dim) - target values
+        
+        Returns:
+            (B, 2N, D) - interleaved sequence where D = max(input_dim, output_dim)
+        """
         B, N, input_dim = xs_b.shape
-
         output_dim = ys_b.shape[-1]
-
- 
-
         D = max(input_dim, output_dim)
-
+        
+        # Pad xs to match max dimension if needed
         if input_dim < D:
-
-            xs_b = F.pad(xs_b, (0, D - input_dim))      # pad last dim
-
- 
-
-        # Create shifted y sequence: [0, y_0, y_1, ..., y_{N-2}]
-
+            xs_b = F.pad(xs_b, (0, D - input_dim))
+        
+        # Create y sequence: [y_0, y_1, ..., y_{N-2}, 0]
+        # All actual y values except the last one (which we predict), plus 0 at the end
         ys_in = torch.zeros(B, N, D, device=xs_b.device, dtype=xs_b.dtype)
-
-        # Shift y values by one position: position i gets y_{i-1}
-
-        ys_in[:, 1:, :output_dim] = ys_b[:, :-1, :]  # ys_in[i] = y[i-1] for i >= 1, else 0
-
- 
-
+        ys_in[:, :-1, :output_dim] = ys_b[:, :-1, :]  # Copy all y's except the last
+        
+        # Interleave: x_0, y_0, x_1, y_1, ..., x_{N-1}, 0
         toks = []
-
         for i in range(N):
-
             toks.append(xs_b[:, i, :])   # (B, D)  x_i
-
-            toks.append(ys_in[:, i, :])  # (B, D)  y_{i-1} (or 0 for i=0)
-
+            toks.append(ys_in[:, i, :])  # (B, D)  y_i for i<N-1, else 0
+        
         return torch.stack(toks, dim=1)  # (B, 2N, D)
+
 
 
 

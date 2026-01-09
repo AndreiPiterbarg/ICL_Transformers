@@ -343,7 +343,7 @@ if __name__ == "__main__":
     
     # Create a simple curriculum
     scheduler = CurriculumScheduler(
-        total_steps=20000,
+        total_steps=200000,
         num_stages=10,
         start_points=3,      # Start easy with 5 examples
         end_points=20,       # End with full 20 examples

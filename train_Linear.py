@@ -9,49 +9,86 @@ sys.path.insert(0, str(project_root))
 from config import lr, batch_size, n_dims, n_points, nn_hidden_dim, nn_input_dims, nn_output_dim
 
 import wandb
+# Replace train_step function (lines 13-28) with:
 
 def train_step(model, xs, ys, optimizer):
     optimizer.zero_grad()
     preds = model(xs, ys)                         # (B, 2N, 1)
     B, N, _ = ys.shape
-
-    y_pos = torch.arange(1, 2*N, 2, device=preds.device)
-
-    # targets for ALL y positions (including final query y_N)
-    tgt_all = ys.squeeze(-1)                      # (B, N)
-    pred_all = preds[:, y_pos, :].squeeze(-1)     # (B, N)
-
-    loss = MSE_nn(pred_all, tgt_all)
+    
+    # Only compute loss on the FINAL query prediction
+    # The final y is at position 2*N - 1 in the sequence
+    final_y_pos = 2 * N - 1
+    
+    # Get prediction for final y only
+    pred_final = preds[:, final_y_pos, :]  # (B, 1)
+    tgt_final = ys[:, -1, :]                # (B, 1)
+    
+    loss = MSE_nn(pred_final, tgt_final)
     loss.backward()
-    #check_gradient_flow(model)
     optimizer.step()
     return loss.detach().item()
 
 
-def train(model, train_steps=1000, log_every=50):
+# Replace train function (lines 31-46) with curriculum support:
+
+def train(model, train_steps=200000, log_every=50, use_curriculum=True):
+    """Train with optional curriculum learning."""
+    from config import n_points as config_n_points
+    from config import batch_size as config_batch_size, n_dims as config_n_dims
+    from curriculum_learning import CurriculumScheduler, CurriculumDataGenerator
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    # Initialize curriculum if requested
+    if use_curriculum:
+        scheduler = CurriculumScheduler(
+            total_steps=train_steps,
+            num_stages=10,
+            start_points=3,
+            end_points=config_n_points,
+            start_noise=0.01,
+            end_noise=0.01,
+            warmup_ratio=0.1
+        )
+        
+        data_gen = CurriculumDataGenerator(
+            scheduler=scheduler,
+            model_type=model.name,
+            batch_size=config_batch_size,
+            base_n_dims=config_n_dims
+        )
+        current_stage = -1
 
     for i in range(train_steps):
-    #for i in range(1):
-
-        xs, ys = generate_data(n_points, batch_size, n_dims, model)
+        # Generate data with curriculum or standard
+        if use_curriculum:
+            xs, ys = data_gen.generate(i)
+            params = data_gen.current_params
+            
+            # Log stage transitions
+            if params['stage'] != current_stage:
+                current_stage = params['stage']
+                print(f"\n{'='*70}")
+                print(f"Curriculum Stage {current_stage} at Step {i}")
+                print(f"{data_gen.get_current_stage_info()}")
+                print(f"{'='*70}\n")
+        else:
+            xs, ys = generate_data(n_points, batch_size, n_dims, model)
         
-
-        #print (xs)
-        #print (ys)
         loss = train_step(model, xs, ys, optimizer)
 
         if i % log_every == 0:
-            print(f"step {i} | query loss: {loss:.6f}")
-        #print(f"step {i} | query loss: {loss:.6f}")
+            stage_info = f" | {data_gen.get_current_stage_info()}" if use_curriculum else ""
+            print(f"step {i} | query loss: {loss:.6f}{stage_info}")
+
+
 
 def generate_data(n_points, batch_size, n_dims, model):
     if model.name == "simple_regression":
         xs, ys = generate_linear(n_points, batch_size, n_dims)
         return xs, ys
-    if model.name == "nn":
-        xs, ys = generate_nn(n_points, batch_size, nn_hidden_dim, nn_output_dim, nn_input_dims)
-        return xs,ys
+    
 
 def mean_squared_error(ys_pred, ys):
     return (ys - ys_pred).square().mean()
@@ -105,4 +142,4 @@ def run_nn_ICL():
 
 
 if __name__ == "__main__":
-    run_nn_ICL()
+    run_gradient_descent()

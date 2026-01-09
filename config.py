@@ -5,7 +5,7 @@ batch_size = 64
 n_dims = 4
 n_points = 10  # total points per sequence; last point will be the query
 
-train_steps = 2000
+train_steps = 20000
 log_every = 50
 eval_every = 200
 
